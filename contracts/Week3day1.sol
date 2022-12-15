@@ -18,13 +18,13 @@ contract token is ERC20("Win a price by collect points!", "POINT") {
         _;
     }
 
-    function mintNewToken(uint _ammount) external onlyOwner {
-       _mint(msg.sender, _ammount*(10**18));
+    function mintNewToken(uint _amount) external onlyOwner {
+       _mint(msg.sender, _amount*(10**18));
     }
 
-    function BurnAndAdd(uint _ammount) external {
-        _burn(msg.sender, _ammount);
-        points[msg.sender] += _ammount;
+    function BurnAndAdd(uint _amount) external {
+        _burn(msg.sender, _amount);
+        points[msg.sender] += _amount;
     }
 
     function burned(address _addy) external view returns(uint) {
