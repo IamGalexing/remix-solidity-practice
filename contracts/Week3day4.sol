@@ -9,15 +9,14 @@ contract multiSignatureWallet {
     uint public approvalsNeeded = 2;
     mapping (uint => mapping(address => bool)) public alreadyVoted;
 
-    enum progressTX {inProgress, REJECTED, APPROVED}
+    enum TX_STATUS {PENDING, REJECTED, APPROVED, EXECUTED}
 
     struct Transaction {
         address sendingTo;
         uint value;
-        bool alreadyExecuted;
         uint approved;
         uint rejected;
-        progressTX status;
+        TX_STATUS status;
     }
 
     Transaction[] public proposedTransactions;
@@ -32,16 +31,19 @@ contract multiSignatureWallet {
     }
 
     modifier onlyOwner() {
-        require(isOwner[msg.sender], "You are not in the list of onwners");
+        require(isOwner[msg.sender], "You are not in the list of owners");
         _;
     }
 
     modifier onlyAdmin() {
-        require(msg.sender == admin, "You have no permision");
+        require(msg.sender == admin, "You have no permission");
         _;
     }
 
     function changeAdmin(address _to) external onlyAdmin {
+        require(_to != address(0), "Unpropriate address of new admin");
+        require(_to != address(this), "The wallet`s address cannot be the admin");
+        require(_to != admin, "You are already admin");
         admin = _to;
     }
 
@@ -60,51 +62,64 @@ contract multiSignatureWallet {
         owners[_index] = owners[owners.length-1];
         }
         owners.pop();
+        approvalsNeeded = owners.length/2 + 1;
     }
 
     function proposeTX(address _to, uint _amount) external onlyOwner {
+        require(_to != address(0) && _to != address(this), "Invalid recipient");
+        require(_amount > 0, "Invalid amount");
+        
         proposedTransactions.push(Transaction({
             sendingTo: _to,
             value: _amount,
-            alreadyExecuted: false,
             approved: 0,
             rejected: 0,
-            status: progressTX.inProgress
+            status: TX_STATUS.PENDING
         }));
     }
 
     function approveTransaction(uint _index) external onlyOwner {
         require(alreadyVoted[_index][msg.sender] == false, "You already voted!");
 
-        proposedTransactions[_index].approved += 1;
+        Transaction memory txMemory = proposedTransactions[_index];
+
+        txMemory.approved += 1;
         alreadyVoted[_index][msg.sender] = true;
 
-        if (proposedTransactions[_index].status == progressTX.inProgress && proposedTransactions[_index].approved >= approvalsNeeded) {
-            proposedTransactions[_index].status = progressTX.APPROVED;
+        if (txMemory.status == TX_STATUS.PENDING && txMemory.approved >= approvalsNeeded) {
+            txMemory.status = TX_STATUS.APPROVED;
         }
+
+        proposedTransactions[_index] = txMemory;
     }
 
     function rejectTransaction(uint _index) external onlyOwner {
         require(alreadyVoted[_index][msg.sender] == false, "You already voted!");
 
-        proposedTransactions[_index].rejected += 1;
+        Transaction memory txMemory = proposedTransactions[_index];
+
+        txMemory.rejected += 1;
         alreadyVoted[_index][msg.sender] = true;
 
-        if (proposedTransactions[_index].status == progressTX.inProgress && 
-        (proposedTransactions[_index].rejected >= approvalsNeeded || owners.length == 2)) {
-            proposedTransactions[_index].status = progressTX.REJECTED;
+        if (txMemory.status == TX_STATUS.PENDING && 
+        (txMemory.rejected > (owners.length - approvalsNeeded))) {
+            txMemory.status = TX_STATUS.REJECTED;
         }
+
+        proposedTransactions[_index] = txMemory;
     }
 
     function executeTX(uint _index) external onlyOwner {
-        require(proposedTransactions[_index].alreadyExecuted == false, "Already executed!");
-        require(proposedTransactions[_index].status == progressTX.APPROVED, "Not detected that the TX approved");
+        require(proposedTransactions[_index].status == TX_STATUS.EXECUTED, "Already executed!");
+        require(proposedTransactions[_index].status == TX_STATUS.APPROVED, "Not detected that the TX approved");
 
-        address payable sendingTo = payable(proposedTransactions[_index].sendingTo);
-        (bool isSent,) = sendingTo.call{value: proposedTransactions[_index].value}("");
+        Transaction memory txMemory = proposedTransactions[_index];
+
+        address payable sendingTo = payable(txMemory.sendingTo);
+        (bool isSent,) = sendingTo.call{value: txMemory.value}("");
         require(isSent, "You don't have enough ETH to send");
 
-        proposedTransactions[_index].alreadyExecuted = true;
+        proposedTransactions[_index].status = TX_STATUS.EXECUTED;
     }
 
     function getBalance() external view onlyOwner returns(uint) {
